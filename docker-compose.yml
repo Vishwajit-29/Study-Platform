@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: study-platform-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: studyplatform
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - study-platform-network
+
+  # Redis (for caching - Phase 4)
+  redis:
+    image: redis:7-alpine
+    container_name: study-platform-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - study-platform-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  study-platform-network:
+    driver: bridge
