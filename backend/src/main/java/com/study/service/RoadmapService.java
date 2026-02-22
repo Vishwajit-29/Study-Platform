@@ -2,6 +2,7 @@ package com.study.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.study.config.AIModelConfig;
 import com.study.dto.*;
 import com.study.model.*;
 import com.study.repository.*;
@@ -13,6 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.springframework.http.codec.ServerSentEvent;
+import reactor.core.publisher.Flux;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -25,6 +32,8 @@ public class RoadmapService {
     private final NvidiaAIService aiService;
     private final RAGService ragService;
     private final ObjectMapper objectMapper;
+    private final AIModelConfig modelConfig;
+    private final GamificationService gamificationService;
 
     public RoadmapService(RoadmapRepository roadmapRepository,
                           TopicRepository topicRepository,
@@ -32,7 +41,9 @@ public class RoadmapService {
                           UserRepository userRepository,
                           NvidiaAIService aiService,
                           RAGService ragService,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          AIModelConfig modelConfig,
+                          GamificationService gamificationService) {
         this.roadmapRepository = roadmapRepository;
         this.topicRepository = topicRepository;
         this.contentRepository = contentRepository;
@@ -40,6 +51,234 @@ public class RoadmapService {
         this.aiService = aiService;
         this.ragService = ragService;
         this.objectMapper = objectMapper;
+        this.modelConfig = modelConfig;
+        this.gamificationService = gamificationService;
+    }
+
+    /**
+     * Create a roadmap with SSE streaming
+     */
+    public Flux<ServerSentEvent<String>> createRoadmapStreaming(String userId, RoadmapRequest request) {
+        if (!request.isGenerateWithAI() || !aiService.isAvailable()) {
+            Roadmap roadmap = createManualRoadmap(userId, request);
+            return Flux.just(ServerSentEvent.<String>builder()
+                    .event("complete")
+                    .data("{\"roadmapId\":\"" + roadmap.getId() + "\",\"totalTopics\":0}")
+                    .build());
+        }
+
+        String prompt = PromptTemplates.formatRoadmapStreamPrompt(
+                request.getGoal(),
+                request.getCurrentLevel(),
+                request.getDifficulty(),
+                request.getEstimatedHoursPerWeek(),
+                request.getPreferredLearningStyle()
+        );
+
+        String resolvedModel = modelConfig.resolveModelId(request.getModel());
+
+        AIRequest aiRequest = AIRequest.withSystemPrompt(
+                PromptTemplates.SYSTEM_PROMPT_ROADMAP_GENERATOR,
+                prompt
+        );
+        aiRequest.setModel(resolvedModel);
+
+        AtomicReference<String> buffer = new AtomicReference<>("");
+        AtomicInteger sequenceOrder = new AtomicInteger(1);
+        AtomicReference<Roadmap> draftRoadmap = new AtomicReference<>(null);
+
+        return aiService.generateStream(aiRequest)
+                .flatMap(chunk -> {
+                    String current = buffer.get() + chunk;
+                    List<ServerSentEvent<String>> events = new ArrayList<>();
+
+                    // Very simple state machine/parser for THINKING and TOPIC
+                    if (current.contains("THINKING:")) {
+                        int thinkingStart = current.indexOf("THINKING:") + "THINKING:".length();
+                        int topicStart = current.indexOf("TOPIC:", thinkingStart);
+                        
+                        if (topicStart != -1) {
+                            // Thinking section is complete
+                            String thinkingContent = current.substring(thinkingStart, topicStart).trim();
+                            if (!thinkingContent.isEmpty()) {
+                                String escapedThinking = thinkingContent.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+                                events.add(ServerSentEvent.<String>builder()
+                                        .event("thinking")
+                                        .data("{\"content\":\"" + escapedThinking + "\"}")
+                                        .build());
+                            }
+                            current = current.substring(topicStart);
+                        } else {
+                            // Still thinking
+                            String thinkingContent = current.substring(thinkingStart).trim();
+                            if (!thinkingContent.isEmpty()) {
+                                String escapedThinking = thinkingContent.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+                                events.add(ServerSentEvent.<String>builder()
+                                        .event("thinking")
+                                        .data("{\"content\":\"" + escapedThinking + "\"}")
+                                        .build());
+                                current = "THINKING:\n";
+                            }
+                        }
+                    }
+
+                    // Process TOPICs
+                    while (current.contains("TOPIC:")) {
+                        int topicStart = current.indexOf("TOPIC:") + "TOPIC:".length();
+                        int nextTopicStart = current.indexOf("TOPIC:", topicStart);
+                        
+                        if (nextTopicStart != -1) {
+                            // We have a complete topic
+                            String topicJson = current.substring(topicStart, nextTopicStart).trim();
+                            topicJson = aiService.extractJsonFromResponse(topicJson);
+                            
+                            try {
+                                JsonNode topicNode = objectMapper.readTree(topicJson);
+                                
+                                if (draftRoadmap.get() == null) {
+                                    Roadmap initial = Roadmap.builder()
+                                            .userId(userId)
+                                            .title(request.getTitle() != null && !request.getTitle().isEmpty() ? request.getTitle() : "AI Roadmap")
+                                            .description(request.getDescription() != null ? request.getDescription() : "")
+                                            .goal(request.getGoal())
+                                            .difficulty(request.getDifficulty())
+                                            .estimatedHours(request.getEstimatedHoursPerWeek() * 4)
+                                            .estimatedWeeks(4)
+                                            .tags(request.getTags() != null ? request.getTags() : new ArrayList<>())
+                                            .status(Roadmap.RoadmapStatus.DRAFT)
+                                            .progressPercentage(0.0)
+                                            .completedTopics(0)
+                                            .totalTopics(0)
+                                            .build();
+                                    draftRoadmap.set(roadmapRepository.save(initial));
+                                }
+
+                                Topic topic = Topic.builder()
+                                        .roadmapId(draftRoadmap.get().getId())
+                                        .userId(userId)
+                                        .title(topicNode.has("title") ? topicNode.get("title").asText() : "Untitled Topic")
+                                        .description(topicNode.has("description") ? topicNode.get("description").asText() : "")
+                                        .sequenceOrder(sequenceOrder.getAndIncrement())
+                                        .estimatedMinutes(topicNode.has("estimatedMinutes") ? topicNode.get("estimatedMinutes").asInt() : 30)
+                                        .learningObjectives(extractStringArray(topicNode, "learningObjectives"))
+                                        .prerequisites(extractStringArray(topicNode, "prerequisites"))
+                                        .status(Topic.TopicStatus.AVAILABLE)
+                                        .resources(extractResources(topicNode))
+                                        .build();
+                                
+                                topic = topicRepository.save(topic);
+
+                                com.fasterxml.jackson.databind.node.ObjectNode objNode = (com.fasterxml.jackson.databind.node.ObjectNode) topicNode;
+                                objNode.put("id", topic.getId());
+                                objNode.put("sequenceOrder", topic.getSequenceOrder());
+
+                                events.add(ServerSentEvent.<String>builder()
+                                        .event("topic")
+                                        .data(objectMapper.writeValueAsString(topicNode))
+                                        .build());
+
+                            } catch (Exception e) {
+                                log.error("Failed to parse topic JSON: " + topicJson, e);
+                            }
+                            
+                            current = current.substring(nextTopicStart);
+                        } else {
+                            // Incomplete topic, wait for more chunks
+                            break;
+                        }
+                    }
+                    
+                    buffer.set(current);
+                    return Flux.fromIterable(events);
+                })
+                .concatWith(Flux.defer(() -> {
+                    // Process any remaining topic at the end
+                    String current = buffer.get();
+                    if (current.contains("TOPIC:")) {
+                        int topicStart = current.indexOf("TOPIC:") + "TOPIC:".length();
+                        String topicJson = current.substring(topicStart).trim();
+                        topicJson = aiService.extractJsonFromResponse(topicJson);
+                        
+                        try {
+                            JsonNode topicNode = objectMapper.readTree(topicJson);
+                            
+                            if (draftRoadmap.get() == null) {
+                                Roadmap initial = Roadmap.builder()
+                                        .userId(userId)
+                                        .title(request.getTitle() != null && !request.getTitle().isEmpty() ? request.getTitle() : "AI Roadmap")
+                                        .description(request.getDescription() != null ? request.getDescription() : "")
+                                        .goal(request.getGoal())
+                                        .difficulty(request.getDifficulty())
+                                        .estimatedHours(request.getEstimatedHoursPerWeek() * 4)
+                                        .estimatedWeeks(4)
+                                        .tags(request.getTags() != null ? request.getTags() : new ArrayList<>())
+                                        .status(Roadmap.RoadmapStatus.DRAFT)
+                                        .progressPercentage(0.0)
+                                        .completedTopics(0)
+                                        .totalTopics(0)
+                                        .build();
+                                draftRoadmap.set(roadmapRepository.save(initial));
+                            }
+
+                            Topic topic = Topic.builder()
+                                    .roadmapId(draftRoadmap.get().getId())
+                                    .userId(userId)
+                                    .title(topicNode.has("title") ? topicNode.get("title").asText() : "Untitled Topic")
+                                    .description(topicNode.has("description") ? topicNode.get("description").asText() : "")
+                                    .sequenceOrder(sequenceOrder.getAndIncrement())
+                                    .estimatedMinutes(topicNode.has("estimatedMinutes") ? topicNode.get("estimatedMinutes").asInt() : 30)
+                                    .learningObjectives(extractStringArray(topicNode, "learningObjectives"))
+                                    .prerequisites(extractStringArray(topicNode, "prerequisites"))
+                                    .status(Topic.TopicStatus.AVAILABLE)
+                                    .resources(extractResources(topicNode))
+                                    .build();
+                            
+                            topic = topicRepository.save(topic);
+
+                            com.fasterxml.jackson.databind.node.ObjectNode objNode = (com.fasterxml.jackson.databind.node.ObjectNode) topicNode;
+                            objNode.put("id", topic.getId());
+                            objNode.put("sequenceOrder", topic.getSequenceOrder());
+
+                            ServerSentEvent<String> event = ServerSentEvent.<String>builder()
+                                    .event("topic")
+                                    .data(objectMapper.writeValueAsString(topicNode))
+                                    .build();
+
+                            Roadmap rm = draftRoadmap.get();
+                            rm.setTotalTopics(sequenceOrder.get() - 1);
+                            roadmapRepository.save(rm);
+
+                            // Award XP for creating a roadmap
+                            awardRoadmapCreationXP(userId);
+
+                            ServerSentEvent<String> complete = ServerSentEvent.<String>builder()
+                                    .event("complete")
+                                    .data("{\"roadmapId\":\"" + rm.getId() + "\",\"totalTopics\":" + rm.getTotalTopics() + "}")
+                                    .build();
+
+                            return Flux.just(event, complete);
+
+                        } catch (Exception e) {
+                            log.error("Failed to parse final topic JSON", e);
+                        }
+                    }
+                    
+                    if (draftRoadmap.get() != null) {
+                        Roadmap rm = draftRoadmap.get();
+                        rm.setTotalTopics(sequenceOrder.get() - 1);
+                        roadmapRepository.save(rm);
+
+                        // Award XP for creating a roadmap
+                        awardRoadmapCreationXP(userId);
+
+                        return Flux.just(ServerSentEvent.<String>builder()
+                                .event("complete")
+                                .data("{\"roadmapId\":\"" + rm.getId() + "\",\"totalTopics\":" + rm.getTotalTopics() + "}")
+                                .build());
+                    }
+                    
+                    return Flux.empty();
+                }));
     }
 
     /**
@@ -56,6 +295,9 @@ public class RoadmapService {
         } else {
             roadmap = createManualRoadmap(userId, request);
         }
+        
+        // Award XP for creating a roadmap
+        awardRoadmapCreationXP(userId);
         
         return mapToRoadmapResponse(roadmap);
     }
@@ -202,6 +444,10 @@ public class RoadmapService {
             roadmap.setStatus(Roadmap.RoadmapStatus.ACTIVE);
             roadmap.setStartedAt(LocalDateTime.now());
             roadmap = roadmapRepository.save(roadmap);
+
+            // Award XP for starting a roadmap
+            gamificationService.awardXP(userId, GamificationService.XP_START_ROADMAP,
+                    "Started roadmap: " + roadmap.getTitle(), "START_ROADMAP");
         }
         
         return mapToRoadmapResponse(roadmap);
@@ -266,6 +512,10 @@ public class RoadmapService {
             topic.getContentIds().add(content.getId());
             topicRepository.save(topic);
             
+            // Award XP for generating content
+            gamificationService.awardXP(userId, GamificationService.XP_GENERATE_CONTENT,
+                    "Generated content for: " + topic.getTitle(), "GENERATE_CONTENT");
+            
             return mapToContentResponse(content);
             
         } catch (Exception e) {
@@ -291,7 +541,7 @@ public class RoadmapService {
                 .quizQuestions(extractQuizQuestions(root))
                 .keyPoints(extractStringArray(root, "keyPoints"))
                 .aiGenerated(true)
-                .aiModelVersion("z-ai/glm5")
+                .aiModelVersion(modelConfig.getDefaultModelId())
                 .readingTimeMinutes(root.has("readingTimeMinutes") ? root.get("readingTimeMinutes").asInt() : 10)
                 .complexity(root.has("complexity") ? root.get("complexity").asDouble() : 0.5)
                 .build();
@@ -423,5 +673,24 @@ public class RoadmapService {
             }
         }
         return questions;
+    }
+
+    /**
+     * Award XP for creating a roadmap, including first-roadmap bonus.
+     */
+    private void awardRoadmapCreationXP(String userId) {
+        try {
+            gamificationService.awardXP(userId, GamificationService.XP_CREATE_ROADMAP,
+                    "Created a roadmap", "CREATE_ROADMAP");
+
+            // Check if this is the user's first roadmap for bonus XP
+            long roadmapCount = roadmapRepository.countByUserId(userId);
+            if (roadmapCount == 1) {
+                gamificationService.awardXP(userId, GamificationService.XP_FIRST_ROADMAP,
+                        "First roadmap bonus!", "FIRST_ROADMAP");
+            }
+        } catch (Exception e) {
+            log.error("Failed to award roadmap creation XP for user {}: {}", userId, e.getMessage());
+        }
     }
 }

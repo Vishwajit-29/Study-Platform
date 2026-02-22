@@ -1,3 +1,50 @@
+// ── AI Models ──
+export interface AIModel {
+  id: string;
+  name: string;
+  provider: string;
+  description: string;
+  maxTokens: number;
+  supportsStreaming: boolean;
+  supportsThinking: boolean;
+  category: string;
+  tags: string[];
+}
+
+// ── Chat (Nexus) ──
+export interface ChatSession {
+  id: string;
+  userId: string;
+  title: string;
+  model: string;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  sessionId: string;
+  userId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  thinking?: string | null;
+  model?: string | null;
+  createdAt: string;
+}
+
+export interface ChatMessageRequest {
+  message: string;
+  sessionId?: string | null;
+  model?: string;
+  enableThinking?: boolean;
+}
+
+export interface AIModelsResponse {
+  models: AIModel[];
+  defaultModel: string;
+}
+
 // ── API Response wrapper ──
 export interface ApiResponse<T> {
   success: boolean;
@@ -55,6 +102,7 @@ export interface RoadmapRequest {
   currentLevel: string;
   preferredLearningStyle: string;
   generateWithAI: boolean;
+  model?: string;
 }
 
 export interface TopicSummary {
@@ -90,6 +138,27 @@ export interface RoadmapResponse {
 
 export type RoadmapStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
 export type TopicStatus = 'LOCKED' | 'AVAILABLE' | 'IN_PROGRESS' | 'COMPLETED';
+
+// ── SSE Streaming ──
+export interface StreamThinkingEvent {
+  content: string;
+}
+
+export interface StreamTopicEvent {
+  id: string;
+  title: string;
+  description: string;
+  sequenceOrder: number;
+  estimatedMinutes: number;
+  learningObjectives?: string[];
+  prerequisites?: string[];
+  resources?: Resource[];
+}
+
+export interface StreamCompleteEvent {
+  roadmapId: string;
+  totalTopics: number;
+}
 
 // ── Topic ──
 export interface TopicDetail {
@@ -170,6 +239,7 @@ export interface DoubtRequest {
   contextContentIds?: string[];
   includeUserHistory: boolean;
   maxHistoryItems: number;
+  model?: string;
 }
 
 export interface DoubtResponse {

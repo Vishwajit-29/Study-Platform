@@ -2,6 +2,7 @@ package com.study.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.study.config.AIModelConfig;
 import com.study.dto.AIRequest;
 import com.study.dto.AIResponse;
 import com.study.dto.DoubtRequest;
@@ -25,6 +26,8 @@ public class DoubtService {
     private final NvidiaAIService aiService;
     private final RAGService ragService;
     private final ObjectMapper objectMapper;
+    private final AIModelConfig modelConfig;
+    private final GamificationService gamificationService;
 
     public DoubtService(UserInteractionRepository interactionRepository,
                         TopicRepository topicRepository,
@@ -32,7 +35,9 @@ public class DoubtService {
                         ContentRepository contentRepository,
                         NvidiaAIService aiService,
                         RAGService ragService,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        AIModelConfig modelConfig,
+                        GamificationService gamificationService) {
         this.interactionRepository = interactionRepository;
         this.topicRepository = topicRepository;
         this.roadmapRepository = roadmapRepository;
@@ -40,6 +45,8 @@ public class DoubtService {
         this.aiService = aiService;
         this.ragService = ragService;
         this.objectMapper = objectMapper;
+        this.modelConfig = modelConfig;
+        this.gamificationService = gamificationService;
     }
 
     /**
@@ -78,10 +85,12 @@ public class DoubtService {
                 historyContext
         );
         
-        // Generate AI response
+        // Generate AI response (with optional model selection)
+        String resolvedModel = modelConfig.resolveModelId(request.getModel());
         AIResponse aiResponse = aiService.generateWithSystem(
                 PromptTemplates.SYSTEM_PROMPT_DOUBT_SOLVER,
-                prompt
+                prompt,
+                resolvedModel
         );
         
         // Update interaction with response
@@ -98,6 +107,14 @@ public class DoubtService {
         
         // Save interaction with RAG
         interaction = ragService.saveInteraction(interaction);
+        
+        // Award XP for asking a doubt
+        try {
+            gamificationService.awardXP(userId, GamificationService.XP_ASK_DOUBT,
+                    "Asked a doubt", "ASK_DOUBT");
+        } catch (Exception e) {
+            log.error("Failed to award doubt XP for user {}: {}", userId, e.getMessage());
+        }
         
         // Prepare response
         Map<String, Object> response = new HashMap<>();

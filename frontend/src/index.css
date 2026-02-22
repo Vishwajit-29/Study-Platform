@@ -46,15 +46,15 @@ body {
   font-family: var(--font-mono);
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  font-size: 16px;
+  font-size: 20px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -63,11 +63,17 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-secondary);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-accent);
+}
+
+/* Make scrollbar overlay content instead of reserving gutter space */
+.overlay-scroll {
+  overflow-y: auto;
+  overflow-y: overlay; /* Chromium: scrollbar overlays content, no gutter */
 }
 
 ::selection {
@@ -219,3 +225,188 @@ body {
 .canvas-dot-pulse span:nth-child(1) { animation: dotPulse 1.4s 0s infinite; }
 .canvas-dot-pulse span:nth-child(2) { animation: dotPulse 1.4s 0.2s infinite; }
 .canvas-dot-pulse span:nth-child(3) { animation: dotPulse 1.4s 0.4s infinite; }
+
+/* ── Nexus Chat ── */
+
+/* Thinking block v2 — ChatGPT/Claude style (subtle, gray, collapsible) */
+.nexus-thinking-block-v2 {
+  margin-bottom: 0.6rem;
+}
+
+.nexus-thinking-toggle-v2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: color 0.15s;
+}
+
+.nexus-thinking-toggle-v2:hover {
+  color: var(--color-text-primary);
+}
+
+.nexus-thinking-body-v2 {
+  margin-top: 4px;
+  margin-left: 2px;
+  padding: 8px 14px;
+  border-left: 2px solid var(--color-border-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.nexus-thinking-body-v2.streaming {
+  max-height: none;
+}
+
+/* Legacy thinking block (kept for backward compat, can remove later) */
+
+.nexus-thinking-block {
+  border: 1px solid var(--color-border-primary);
+  border-left: 2px solid var(--color-accent-purple);
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+  background: var(--color-bg-secondary);
+  overflow: hidden;
+}
+
+.nexus-thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--color-accent-purple);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: background-color 0.15s;
+}
+
+.nexus-thinking-toggle:hover {
+  background: var(--color-bg-hover);
+}
+
+.nexus-thinking-content {
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+.nexus-thinking-content.streaming {
+  max-height: none;
+}
+
+/* Chat markdown overrides for tighter spacing */
+.nexus-markdown h1 { font-size: 1.2em; color: var(--color-accent-blue); margin: 0.8em 0 0.4em; font-weight: 600; }
+.nexus-markdown h2 { font-size: 1.1em; color: var(--color-accent-cyan); margin: 0.6em 0 0.3em; font-weight: 600; }
+.nexus-markdown h3 { font-size: 1.02em; color: var(--color-accent-purple); margin: 0.5em 0 0.25em; font-weight: 600; }
+.nexus-markdown p { margin: 0.35em 0; }
+.nexus-markdown ul, .nexus-markdown ol { padding-left: 1.5em; margin: 0.35em 0; }
+.nexus-markdown li { margin: 0.15em 0; }
+.nexus-markdown code {
+  background: var(--color-bg-tertiary);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.88em;
+  color: var(--color-accent-orange);
+}
+.nexus-markdown pre {
+  margin: 0.5em 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.nexus-markdown pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.nexus-markdown blockquote {
+  border-left: 2px solid var(--color-accent-purple);
+  padding-left: 0.8em;
+  color: var(--color-text-secondary);
+  margin: 0.4em 0;
+}
+.nexus-markdown strong { color: var(--color-text-bright); }
+.nexus-markdown a { color: var(--color-accent-blue); text-decoration: none; }
+.nexus-markdown a:hover { text-decoration: underline; }
+.nexus-markdown table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
+.nexus-markdown th, .nexus-markdown td { border: 1px solid var(--color-border-primary); padding: 0.3em 0.6em; text-align: left; font-size: 0.92em; }
+.nexus-markdown th { background: var(--color-bg-tertiary); color: var(--color-accent-cyan); }
+.nexus-markdown hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 0.8em 0; }
+
+/* Code block wrapper for syntax highlighter */
+.nexus-code-block {
+  position: relative;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Prevent .nexus-markdown code styles from leaking into SyntaxHighlighter */
+.nexus-code-block code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  border-radius: 0;
+}
+
+.nexus-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border-primary);
+}
+
+.nexus-code-copy {
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: none;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: all 0.15s;
+}
+
+.nexus-code-copy:hover {
+  color: var(--color-accent-green);
+  border-color: var(--color-accent-green);
+}
+
+@keyframes streamPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.nexus-stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--color-accent-cyan);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: streamPulse 0.8s ease-in-out infinite;
+}

@@ -6,7 +6,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Roadmaps from './pages/Roadmaps';
 import RoadmapDetail from './pages/RoadmapDetail';
-import Doubts from './pages/Doubts';
+import NexusChat from './pages/NexusChat';
 import Profile from './pages/Profile';
 
 export default function App() {
@@ -27,7 +27,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/roadmaps" element={<Roadmaps />} />
         <Route path="/roadmaps/:id" element={<RoadmapDetail />} />
-        <Route path="/doubts" element={<Doubts />} />
+        <Route path="/nexus" element={<NexusChat />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
 

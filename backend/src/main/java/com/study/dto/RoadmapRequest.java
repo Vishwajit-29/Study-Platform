@@ -40,6 +40,8 @@ public class RoadmapRequest {
     
     private String preferredLearningStyle;
     
+    private String model;
+    
     @Builder.Default
     private boolean generateWithAI = true;
 }

@@ -4,7 +4,7 @@ import { useGamification } from '../context/GamificationContext';
 import {
   LayoutDashboard,
   Map,
-  MessageCircleQuestion,
+  Sparkles,
   User,
   LogOut,
   Terminal,
@@ -17,7 +17,7 @@ import {
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'dashboard' },
   { to: '/roadmaps', icon: Map, label: 'roadmaps' },
-  { to: '/doubts', icon: MessageCircleQuestion, label: 'ask ai' },
+  { to: '/nexus', icon: Sparkles, label: 'nexus ai' },
   { to: '/profile', icon: User, label: 'profile' },
 ];
 
@@ -34,32 +34,32 @@ export default function Layout() {
   return (
     <div className="h-screen flex flex-col bg-bg-primary text-text-primary">
       {/* ── Header Bar ── */}
-      <header className="flex items-center justify-between px-5 h-12 border-b border-border-primary bg-bg-secondary shrink-0">
+      <header className="flex items-center justify-between px-6 h-14 border-b border-border-primary bg-bg-secondary shrink-0">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Terminal size={16} className="text-accent-green" />
-            <span className="text-text-bright font-semibold text-[15px] tracking-wide">
+          <div className="flex items-center gap-2.5">
+            <Terminal size={20} className="text-accent-green" />
+            <span className="text-text-bright font-semibold text-lg tracking-wide">
               study<span className="text-accent-green">platform</span>
             </span>
           </div>
           <span className="text-text-muted">|</span>
-          <div className="flex items-center gap-1 text-text-secondary text-xs">
+          <div className="flex items-center gap-1.5 text-text-secondary text-sm">
             <span>~</span>
-            <ChevronRight size={10} />
+            <ChevronRight size={12} />
             <span className="text-accent-blue">{currentPage?.label || 'unknown'}</span>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-5 text-sm">
           {/* Gamification quick stats in header */}
           {gam && (
-            <div className="flex items-center gap-3 mr-2">
-              <span className="flex items-center gap-1 text-accent-green" title="XP">
-                <Zap size={11} />
-                <span className="text-[12px] font-medium">{gam.xp} XP</span>
+            <div className="flex items-center gap-4 mr-2">
+              <span className="flex items-center gap-1.5 text-accent-green" title="XP">
+                <Zap size={14} />
+                <span className="text-[15px] font-medium">{gam.xp} XP</span>
               </span>
-              <span className="flex items-center gap-1 text-accent-orange" title={`${gam.streak}-day streak`}>
-                <Flame size={11} />
-                <span className="text-[12px] font-medium">{gam.streak}</span>
+              <span className="flex items-center gap-1.5 text-accent-orange" title={`${gam.streak}-day streak`}>
+                <Flame size={14} />
+                <span className="text-[15px] font-medium">{gam.streak}</span>
               </span>
             </div>
           )}
@@ -68,9 +68,9 @@ export default function Layout() {
           </span>
           <button
             onClick={logout}
-            className="flex items-center gap-1.5 text-text-secondary hover:text-accent-red transition-colors cursor-pointer"
+            className="flex items-center gap-2 text-text-secondary hover:text-accent-red transition-colors cursor-pointer"
           >
-            <LogOut size={12} />
+            <LogOut size={15} />
             <span>exit</span>
           </button>
         </div>
@@ -78,24 +78,24 @@ export default function Layout() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Sidebar ── */}
-        <nav className="w-52 border-r border-border-primary bg-bg-secondary flex flex-col shrink-0">
-          <div className="px-4 py-3 text-[12px] uppercase tracking-widest text-text-muted">
+        <nav className="w-60 border-r border-border-primary bg-bg-secondary flex flex-col shrink-0">
+          <div className="px-5 py-4 text-[14px] uppercase tracking-widest text-text-muted">
             navigation
           </div>
-          <div className="flex-1 flex flex-col gap-1 px-2.5">
+          <div className="flex-1 flex flex-col gap-1.5 px-3">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 end={item.to === '/'}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-3 py-2 text-xs rounded transition-colors ${isActive
+                  `flex items-center gap-3 px-4 py-2.5 text-sm rounded transition-colors ${isActive
                     ? 'bg-bg-active text-accent-green border-l-2 border-accent-green'
                     : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover border-l-2 border-transparent'
                   }`
                 }
               >
-                <item.icon size={14} />
+                <item.icon size={17} />
                 <span>{item.label}</span>
 
               </NavLink>
@@ -104,35 +104,35 @@ export default function Layout() {
 
           {/* ── Gamification Widget in Sidebar ── */}
           {gam && (
-            <div className="border-t border-border-primary px-4 py-4">
-              <div className="text-[12px] uppercase tracking-wider text-text-muted mb-2">progress</div>
+            <div className="border-t border-border-primary px-5 py-5">
+              <div className="text-[14px] uppercase tracking-wider text-text-muted mb-2.5">progress</div>
 
               {/* Level + XP bar */}
-              <div className="mb-2.5">
-                <div className="flex items-center justify-between text-[12px] mb-1">
+              <div className="mb-3">
+                <div className="flex items-center justify-between text-[14px] mb-1.5">
                   <span className="text-accent-green font-medium">lv.{gam.level}</span>
                   <span className="text-text-muted">{gam.xp}/{gam.xpForNextLevel} xp</span>
                 </div>
-                <div className="h-1.5 bg-bg-primary rounded-full overflow-hidden border border-border-primary">
+                <div className="h-2 bg-bg-primary rounded-full overflow-hidden border border-border-primary">
                   <div
                     className="h-full bg-gradient-to-r from-accent-green to-accent-cyan rounded-full transition-all duration-500"
                     style={{ width: `${gam.xpProgress}%` }}
                   />
                 </div>
-                <div className="text-[11px] text-text-muted mt-0.5">{gam.title}</div>
+                <div className="text-[13px] text-text-muted mt-1">{gam.title}</div>
               </div>
 
               {/* Streak */}
-              <div className="flex items-center gap-1.5 text-[12px]">
-                <Flame size={10} className={gam.streak > 0 ? 'text-accent-orange' : 'text-text-muted'} />
+              <div className="flex items-center gap-2 text-[14px]">
+                <Flame size={13} className={gam.streak > 0 ? 'text-accent-orange' : 'text-text-muted'} />
                 <span className={gam.streak > 0 ? 'text-accent-orange' : 'text-text-muted'}>
                   {gam.streak} day streak
                 </span>
               </div>
 
               {/* Badge count */}
-              <div className="flex items-center gap-1.5 text-[12px] mt-1">
-                <Trophy size={10} className="text-accent-purple" />
+              <div className="flex items-center gap-2 text-[14px] mt-1.5">
+                <Trophy size={13} className="text-accent-purple" />
                 <span className="text-text-secondary">
                   {gam.badges.filter((b) => b.earned).length}/{gam.badges.length} badges
                 </span>
@@ -141,8 +141,8 @@ export default function Layout() {
           )}
 
           {/* Sidebar footer */}
-          <div className="border-t border-border-primary px-4 py-3">
-            <div className="text-[12px] text-text-muted">
+          <div className="border-t border-border-primary px-5 py-4">
+            <div className="text-[14px] text-text-muted">
               <div>ai: nvidia glm5</div>
               <div>session: active</div>
             </div>
@@ -150,23 +150,23 @@ export default function Layout() {
         </nav>
 
         {/* ── Main Content ── */}
-        <main className="flex-1 overflow-auto bg-bg-primary">
+        <main className="flex-1 overlay-scroll bg-bg-primary">
           <Outlet />
         </main>
       </div>
 
       {/* ── Status Bar ── */}
-      <footer className="flex items-center justify-between px-5 h-8 border-t border-border-primary bg-bg-secondary shrink-0 text-[12px]">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-accent-green"></span>
+      <footer className="flex items-center justify-between px-6 h-9 border-t border-border-primary bg-bg-secondary shrink-0 text-[14px]">
+        <div className="flex items-center gap-5">
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent-green"></span>
             <span className="text-text-secondary">connected</span>
           </span>
           <span className="text-text-muted">
             {location.pathname}
           </span>
         </div>
-        <div className="flex items-center gap-4 text-text-muted">
+        <div className="flex items-center gap-5 text-text-muted">
           {gam && (
             <span className="text-accent-green">
               lv.{gam.level} {gam.levelName}

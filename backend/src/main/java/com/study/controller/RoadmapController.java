@@ -12,6 +12,10 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.http.MediaType;
+import reactor.core.publisher.Flux;
+
 @Slf4j
 @RestController
 @RequestMapping("/roadmaps")
@@ -19,6 +23,17 @@ import java.util.List;
 public class RoadmapController {
 
     private final RoadmapService roadmapService;
+
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> createRoadmapStream(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @Valid @RequestBody RoadmapRequest request) {
+        
+        log.info("POST /roadmaps/stream - User: {}, Title: '{}', AI: {}", 
+                userPrincipal.getId(), request.getTitle(), request.isGenerateWithAI());
+        
+        return roadmapService.createRoadmapStreaming(userPrincipal.getId(), request);
+    }
 
     @PostMapping
     public ResponseEntity<ApiResponse<RoadmapResponse>> createRoadmap(

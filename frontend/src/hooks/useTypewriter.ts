@@ -164,7 +164,7 @@ export function useTypewriterLines(
 
   const currentText = lines[currentLine] || '';
 
-  const { displayText, isComplete: lineComplete, skip: skipLine } = useTypewriter(currentText, {
+  const { displayText, isComplete: _lineComplete, skip: skipLine } = useTypewriter(currentText, {
     ...typewriterOpts,
     autoStart: true,
     onComplete: () => {

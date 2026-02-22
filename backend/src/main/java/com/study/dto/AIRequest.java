@@ -30,8 +30,7 @@ public class AIRequest {
     @Builder.Default
     private boolean stream = false;
     
-    @Builder.Default
-    private String model = "z-ai/glm5";
+    private String model;
     
     @Data
     @Builder

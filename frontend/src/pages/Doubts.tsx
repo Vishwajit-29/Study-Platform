@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { doubtApi } from '../api/doubts';
-import type { DoubtHistory } from '../types';
+import { aiApi } from '../api/ai';
+import { useGamification } from '../context/GamificationContext';
+import type { DoubtHistory, AIModel } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Send,
   Loader2,
   ChevronRight,
+  ChevronDown,
   MessageCircleQuestion,
   Bot,
   User,
@@ -14,6 +17,7 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
+  Cpu,
 } from 'lucide-react';
 
 interface Message {
@@ -24,6 +28,7 @@ interface Message {
 }
 
 export default function Doubts() {
+  const { refresh: refreshGamification } = useGamification();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,6 +38,12 @@ export default function Doubts() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Model state
+  const [models, setModels] = useState<AIModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedModelName, setSelectedModelName] = useState<string>('');
+  const [showModelPicker, setShowModelPicker] = useState(false);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -41,7 +52,23 @@ export default function Doubts() {
 
   useEffect(() => {
     inputRef.current?.focus();
+    loadModels();
   }, []);
+
+  const loadModels = async () => {
+    try {
+      const res = await aiApi.getModels();
+      if (res.data.success) {
+        const data = res.data.data;
+        setModels(data.models);
+        setSelectedModel(data.defaultModel);
+        const defaultModel = data.models.find((m: AIModel) => m.id === data.defaultModel);
+        setSelectedModelName(defaultModel?.name || data.defaultModel);
+      }
+    } catch {
+      // models endpoint unavailable — no model picker shown
+    }
+  };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -57,6 +84,7 @@ export default function Doubts() {
         doubt,
         includeUserHistory: true,
         maxHistoryItems: 5,
+        model: selectedModel || undefined,
       });
 
       if (res.data.success && res.data.data) {
@@ -69,6 +97,7 @@ export default function Doubts() {
             resolved: res.data.data.resolved,
           },
         ]);
+        refreshGamification();
       } else {
         setMessages((prev) => [
           ...prev,
@@ -127,13 +156,63 @@ export default function Doubts() {
           </div>
           <h1 className="text-sm font-semibold text-text-bright">AI doubt solver</h1>
         </div>
-        <button
-          onClick={loadHistory}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-text-secondary hover:text-accent-blue border border-border-primary rounded hover:border-accent-blue/30 transition-colors cursor-pointer"
-        >
-          <History size={12} />
-          history
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Model selector */}
+          {models.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowModelPicker(!showModelPicker)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-text-secondary hover:text-accent-cyan border border-border-primary rounded hover:border-accent-cyan/30 transition-colors cursor-pointer"
+              >
+                <Cpu size={10} />
+                <span className="max-w-[120px] truncate">{selectedModelName || 'select model'}</span>
+                <ChevronDown size={10} />
+              </button>
+
+              {showModelPicker && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowModelPicker(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-72 bg-bg-secondary border border-border-primary rounded shadow-lg z-50 overflow-hidden">
+                    <div className="px-3 py-2 border-b border-border-primary text-[10px] text-text-muted uppercase tracking-wider">
+                      ai model
+                    </div>
+                    {models.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => {
+                          setSelectedModel(m.id);
+                          setSelectedModelName(m.name);
+                          setShowModelPicker(false);
+                        }}
+                        className={`w-full text-left px-3 py-2.5 hover:bg-bg-hover transition-colors cursor-pointer ${
+                          selectedModel === m.id ? 'bg-bg-active' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-text-primary">{m.name}</span>
+                          {selectedModel === m.id && (
+                            <span className="text-[10px] text-accent-green">active</span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-text-muted mt-0.5">
+                          {m.provider} | {m.maxTokens} tokens | {m.description}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={loadHistory}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-text-secondary hover:text-accent-blue border border-border-primary rounded hover:border-accent-blue/30 transition-colors cursor-pointer"
+          >
+            <History size={12} />
+            history
+          </button>
+        </div>
       </div>
 
       {/* Chat area */}
@@ -144,8 +223,8 @@ export default function Doubts() {
               <MessageCircleQuestion size={36} className="text-text-muted mx-auto mb-4" />
               <h2 className="text-sm text-text-secondary mb-2">ask anything</h2>
               <p className="text-xs text-text-muted leading-relaxed">
-                powered by NVIDIA GLM5 AI. ask questions about programming,
-                concepts, debugging, or anything you're learning.
+                powered by NVIDIA AI{selectedModelName ? ` (${selectedModelName})` : ''}. ask questions about
+                programming, concepts, debugging, or anything you're learning.
               </p>
               <div className="grid grid-cols-2 gap-3 mt-6">
                 {[
@@ -187,6 +266,9 @@ export default function Doubts() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-[12px] text-text-muted">ai assistant</span>
+                        {selectedModelName && (
+                          <span className="text-[10px] text-accent-cyan">{selectedModelName}</span>
+                        )}
                         {msg.resolved !== undefined && (
                           msg.resolved ? (
                             <span className="flex items-center gap-1 text-[11px] text-accent-green">
@@ -217,7 +299,7 @@ export default function Doubts() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-text-secondary py-2">
                   <Loader2 size={12} className="spinner" />
-                  <span>thinking...</span>
+                  <span>thinking{selectedModelName ? ` (${selectedModelName})` : ''}...</span>
                 </div>
               </div>
             )}
@@ -248,7 +330,11 @@ export default function Doubts() {
             </button>
           </div>
           <div className="flex items-center justify-between mt-2 text-[12px] text-text-muted">
-            <span>powered by nvidia glm5</span>
+            <span>
+              {selectedModelName
+                ? `model: ${selectedModelName.toLowerCase()}`
+                : 'powered by nvidia ai'}
+            </span>
             <span>enter to send</span>
           </div>
         </form>

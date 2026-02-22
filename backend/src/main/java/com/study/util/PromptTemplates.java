@@ -9,17 +9,20 @@ public final class PromptTemplates {
         Your task is to generate structured, comprehensive learning paths based on user goals.
         
         Guidelines:
-        1. DYNAMICALLY determine the optimal number of topics based on:
-           - Difficulty level (beginner needs more granular steps, advanced can cover more per topic)
-           - Available hours per week (more time = can handle more topics)
-           - Learning style (visual/practical may need more hands-on topics)
+        1. DYNAMICALLY determine the optimal number of topics. Do NOT default to 10.
+           Consider:
+           - Difficulty level: beginners need more granular steps (8-15 topics), advanced learners can handle broader topics (4-8)
+           - Available hours per week: more time allows for more detailed coverage
+           - Subject complexity: some subjects naturally need more or fewer topics
+           - Learning style: practical learners may need more hands-on topics
         2. Each topic should have clear objectives and prerequisites
         3. Estimate realistic time requirements per topic
         4. Provide specific, actionable content recommendations
         5. Adjust complexity based on user's stated level
         6. Topics should build progressively - earlier topics are foundations for later ones
+        7. The total number of topics should feel natural for the subject, not artificially padded or compressed
         
-        Output format must be valid JSON matching the expected structure.
+        Output format must follow the exact structure requested.
         """;
     
     public static final String ROADMAP_GENERATION = """
@@ -36,7 +39,7 @@ public final class PromptTemplates {
         2. A brief description (2-3 sentences)
         3. Estimated total weeks and hours
         4. Relevant tags (3-5 keywords)
-        5. An array of 5-10 topics with:
+        5. An array of topics (determine the right number based on the goal, difficulty, and user level) with:
            - title: clear, specific topic name
            - description: what will be learned
            - estimatedMinutes: realistic time estimate (15-120 minutes)
@@ -128,19 +131,46 @@ public final class PromptTemplates {
         Keep the response conversational but informative.
         """;
     
-    public static final String SUMMARY_GENERATOR = """
-        Create a concise summary for the following content:
+    public static final String ROADMAP_GENERATION_STREAM = """
+        Create a detailed learning roadmap for the following goal:
         
-        TOPIC: %s
-        CONTENT: %s
+        GOAL: %s
+        CURRENT LEVEL: %s
+        DIFFICULTY: %s
+        ESTIMATED HOURS PER WEEK: %d
+        PREFERRED STYLE: %s
         
-        Provide:
-        1. A 2-3 sentence summary of the key concepts
-        2. 3-5 bullet points of main takeaways
-        3. Key terms/vocabulary introduced
+        You MUST respond in EXACTLY this format, with these exact markers:
         
-        Format as JSON with fields: summary, keyTakeaways, keyTerms.
+        THINKING:
+        [Write your analysis here. Explain:
+         - Why you chose a specific number of topics (not always 10!)
+         - How the user's level and hours/week influenced your plan
+         - The logical progression you're designing
+         - Any assumptions you're making about prerequisites
+        This section is shown live to the user as you think.]
+        
+        Then output each topic one at a time, each preceded by the TOPIC: marker:
+        
+        TOPIC:
+        {"title": "Topic Name", "description": "What will be learned", "estimatedMinutes": 45, "learningObjectives": ["obj1", "obj2", "obj3"], "prerequisites": [], "resources": [{"type": "article", "title": "Resource", "url": "", "description": "Helpful resource"}]}
+        
+        TOPIC:
+        {"title": "Next Topic", "description": "Building on previous", "estimatedMinutes": 60, "learningObjectives": ["obj1", "obj2"], "prerequisites": ["Topic Name"], "resources": []}
+        
+        Rules:
+        - Determine the RIGHT number of topics for this subject. Could be 5, could be 12, could be 20. Let the content dictate.
+        - Each TOPIC: must be followed by a single valid JSON object on one line
+        - Do NOT wrap all topics in an array
+        - Do NOT use markdown code blocks around the JSON
+        - Topics should build progressively
+        - Be thorough in THINKING — the user sees this live
         """;
+        
+    public static String formatRoadmapStreamPrompt(String goal, String currentLevel, String difficulty, 
+                                              int hoursPerWeek, String learningStyle) {
+        return String.format(ROADMAP_GENERATION_STREAM, goal, currentLevel, difficulty, hoursPerWeek, learningStyle);
+    }
     
     public static String formatRoadmapPrompt(String goal, String currentLevel, String difficulty, 
                                               int hoursPerWeek, String learningStyle) {
@@ -157,4 +187,36 @@ public final class PromptTemplates {
             "PREVIOUS RELATED INTERACTIONS:\n" + historyContext;
         return String.format(DOUBT_SOLVING, doubt, roadmap, topic, currentLearning, historySection);
     }
+
+    // ── Nexus Chat System Prompt ──
+
+    public static final String SYSTEM_PROMPT_NEXUS_CHAT = """
+        You are Nexus, an advanced AI assistant integrated into a study platform. You help users learn, understand concepts, write and debug code, and think through problems.
+
+        Response Guidelines:
+        1. Be clear, direct, and well-structured in your responses
+        2. Use markdown formatting effectively:
+           - Use headers (##, ###) to organize long responses
+           - Use **bold** for key terms and important concepts
+           - Use `inline code` for variable names, functions, commands
+           - Use fenced code blocks with language specifiers (```python, ```javascript, etc.)
+           - Use bullet points and numbered lists for clarity
+           - Use tables when comparing options or features
+           - Use > blockquotes for important notes, warnings, or tips
+        3. For code:
+           - Always specify the language in fenced code blocks
+           - Include comments explaining key parts of the code
+           - Show complete, runnable examples when possible
+           - Explain the code after showing it
+           - If fixing a bug, explain what was wrong AND why
+        4. For explanations:
+           - Start with a brief, clear answer
+           - Then provide detailed explanation with context
+           - Use analogies to make complex concepts accessible
+           - Include practical examples to illustrate points
+        5. Be conversational but professional — no unnecessary filler
+        6. If you're unsure about something, say so honestly
+        7. Adapt response depth to the question — simple questions get concise answers, complex ones get thorough treatment
+        8. When appropriate, suggest follow-up topics or related concepts the user might want to explore
+        """;
 }

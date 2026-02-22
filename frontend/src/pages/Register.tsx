@@ -47,40 +47,40 @@ export default function Register() {
     <div className="h-screen flex items-center justify-center bg-bg-primary">
       <div className="w-full max-w-md">
         <div className="border border-border-primary rounded-t bg-bg-secondary">
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-border-primary">
-            <div className="flex gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-accent-red opacity-70" />
-              <span className="w-2.5 h-2.5 rounded-full bg-accent-orange opacity-70" />
-              <span className="w-2.5 h-2.5 rounded-full bg-accent-green opacity-70" />
+          <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border-primary">
+            <div className="flex gap-2">
+              <span className="w-3 h-3 rounded-full bg-accent-red opacity-70" />
+              <span className="w-3 h-3 rounded-full bg-accent-orange opacity-70" />
+              <span className="w-3 h-3 rounded-full bg-accent-green opacity-70" />
             </div>
-            <span className="text-xs text-text-muted ml-2">studyplatform -- register</span>
+            <span className="text-sm text-text-muted ml-2.5">studyplatform -- register</span>
           </div>
 
-          <div className="p-8">
-            <div className="mb-8">
-              <div className="flex items-center gap-2 mb-3">
-                <Terminal size={18} className="text-accent-green" />
-                <span className="text-lg font-semibold text-text-bright">
+          <div className="p-10">
+            <div className="mb-10">
+              <div className="flex items-center gap-2.5 mb-4">
+                <Terminal size={22} className="text-accent-green" />
+                <span className="text-xl font-semibold text-text-bright">
                   study<span className="text-accent-green">platform</span>
                 </span>
               </div>
-              <p className="text-xs text-text-secondary">
+              <p className="text-sm text-text-secondary">
                 create a new account to start your learning journey.
               </p>
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 px-3 py-2 mb-5 bg-accent-dim-red border border-accent-red/30 rounded text-xs text-accent-red">
-                <AlertTriangle size={12} />
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 mb-6 bg-accent-dim-red border border-accent-red/30 rounded text-sm text-accent-red">
+                <AlertTriangle size={15} />
                 <span>{error}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               {fields.map((field) => (
                 <div key={field.name}>
-                  <label className="flex items-center gap-1 text-xs text-text-secondary mb-2">
-                    <ChevronRight size={10} className="text-accent-green" />
+                  <label className="flex items-center gap-1.5 text-sm text-text-secondary mb-2.5">
+                    <ChevronRight size={13} className="text-accent-green" />
                     {field.label}
                   </label>
                   <input
@@ -88,7 +88,7 @@ export default function Register() {
                     name={field.name}
                     value={form[field.name as keyof typeof form]}
                     onChange={handleChange}
-                    className="w-full bg-bg-primary border border-border-primary rounded px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-green transition-colors font-[inherit]"
+                    className="w-full bg-bg-primary border border-border-primary rounded px-3.5 py-3 text-base text-text-primary focus:outline-none focus:border-accent-green transition-colors font-[inherit]"
                     placeholder={field.placeholder}
                     required
                   />
@@ -98,24 +98,24 @@ export default function Register() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-bg-tertiary border border-border-secondary rounded px-3 py-2.5 text-sm text-accent-green hover:bg-bg-hover hover:border-accent-green/50 transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2 mt-5!"
+                className="w-full bg-bg-tertiary border border-border-secondary rounded px-3.5 py-3 text-base text-accent-green hover:bg-bg-hover hover:border-accent-green/50 transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2.5 mt-6!"
               >
                 {loading ? (
                   <>
-                    <Loader2 size={14} className="spinner" />
+                    <Loader2 size={17} className="spinner" />
                     <span>creating account...</span>
                   </>
                 ) : (
                   <>
-                    <ChevronRight size={14} />
+                    <ChevronRight size={17} />
                     <span>register</span>
                   </>
                 )}
               </button>
             </form>
 
-            <div className="mt-8 pt-5 border-t border-border-primary">
-              <p className="text-xs text-text-muted text-center">
+            <div className="mt-10 pt-6 border-t border-border-primary">
+              <p className="text-sm text-text-muted text-center">
                 already have an account?{' '}
                 <Link to="/login" className="text-accent-blue hover:underline">
                   login
@@ -125,7 +125,7 @@ export default function Register() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-4 py-2 bg-bg-active border-x border-b border-border-primary rounded-b text-[12px] text-text-muted">
+        <div className="flex items-center justify-between px-5 py-2.5 bg-bg-active border-x border-b border-border-primary rounded-b text-[15px] text-text-muted">
           <span>secure connection</span>
           <span>jwt + bcrypt</span>
         </div>

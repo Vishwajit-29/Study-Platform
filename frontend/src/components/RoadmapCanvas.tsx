@@ -20,19 +20,13 @@ interface RoadmapCanvasProps {
   nodesPerRow?: number;
   animate?: boolean;
   title?: string;
+  modelName?: string;
 }
 
 interface CanvasRow {
-  nodes: (TopicSummary | SkeletonNode)[];
+  nodes: TopicSummary[];
   direction: 'ltr' | 'rtl';
   rowIndex: number;
-}
-
-interface SkeletonNode {
-  id: string;
-  title: string;
-  sequenceOrder: number;
-  isSkeleton: true;
 }
 
 // ── Constants ──
@@ -42,56 +36,38 @@ const STATUS_STYLES: Record<string, { border: string; bg: string; text: string; 
     border: 'border-border-primary',
     bg: 'bg-bg-tertiary',
     text: 'text-text-muted',
-    icon: <Lock size={11} />,
+    icon: <Lock size={14} />,
   },
   AVAILABLE: {
     border: 'border-accent-blue/40',
     bg: 'bg-accent-dim-blue/30',
     text: 'text-accent-blue',
-    icon: <Play size={11} />,
+    icon: <Play size={14} />,
   },
   IN_PROGRESS: {
     border: 'border-accent-orange/40',
     bg: 'bg-accent-dim-orange/30',
     text: 'text-accent-orange',
-    icon: <Clock size={11} />,
+    icon: <Clock size={14} />,
   },
   COMPLETED: {
     border: 'border-accent-green/40',
     bg: 'bg-accent-dim-green/30',
     text: 'text-accent-green',
-    icon: <CheckCircle2 size={11} />,
+    icon: <CheckCircle2 size={14} />,
   },
 };
 
-const GENERATING_PHASES = [
-  'initializing reasoning model...',
-  'analyzing learning objectives...',
-  'mapping knowledge domains...',
-  'structuring topic hierarchy...',
-  'generating subtopic details...',
-  'calculating time estimates...',
-  'optimizing learning path...',
-  'building prerequisite graph...',
-  'assigning difficulty levels...',
-  'finalizing roadmap structure...',
-];
-
 // ── Helpers ──
 
-function isSkeleton(node: TopicSummary | SkeletonNode): node is SkeletonNode {
-  return 'isSkeleton' in node && node.isSkeleton;
-}
-
 function buildSnakeRows(
-  nodes: (TopicSummary | SkeletonNode)[],
+  nodes: TopicSummary[],
   nodesPerRow: number,
 ): CanvasRow[] {
   const rows: CanvasRow[] = [];
   for (let i = 0; i < nodes.length; i += nodesPerRow) {
     const rowIndex = Math.floor(i / nodesPerRow);
     const rowNodes = nodes.slice(i, i + nodesPerRow);
-    // Odd rows go right-to-left (reverse the display order)
     rows.push({
       nodes: rowIndex % 2 === 1 ? [...rowNodes].reverse() : rowNodes,
       direction: rowIndex % 2 === 0 ? 'ltr' : 'rtl',
@@ -112,65 +88,33 @@ export default function RoadmapCanvas({
   nodesPerRow = 5,
   animate = true,
   title,
+  modelName,
 }: RoadmapCanvasProps) {
-  const [phase, setPhase] = useState(0);
-  const [visibleSkeletons, setVisibleSkeletons] = useState(1);
   const [revealedCount, setRevealedCount] = useState(0);
   const prevTopicCountRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Cycle through generating phases
-  useEffect(() => {
-    if (!isGenerating) return;
-    const timer = setInterval(() => {
-      setPhase((p) => (p + 1) % GENERATING_PHASES.length);
-    }, 3500);
-    return () => clearInterval(timer);
-  }, [isGenerating]);
-
-  // Progressively reveal skeleton nodes during generation
-  useEffect(() => {
-    if (!isGenerating) return;
-    setVisibleSkeletons(1);
-    const timer = setInterval(() => {
-      setVisibleSkeletons((v) => {
-        if (v >= 10) return 10;
-        return v + 1;
-      });
-    }, 2800);
-    return () => clearInterval(timer);
-  }, [isGenerating]);
-
   // Stagger reveal of real topics when they arrive
   useEffect(() => {
-    if (topics.length > 0 && prevTopicCountRef.current === 0 && animate) {
-      // Topics just appeared — stagger reveal
-      setRevealedCount(0);
-      let count = 0;
+    if (topics.length > prevTopicCountRef.current) {
+      // New topic(s) arrived — reveal them with stagger
+      const startFrom = prevTopicCountRef.current;
+      let count = startFrom;
       const timer = setInterval(() => {
         count++;
         setRevealedCount(count);
         if (count >= topics.length) clearInterval(timer);
       }, 150);
+      prevTopicCountRef.current = topics.length;
       return () => clearInterval(timer);
-    } else if (topics.length > 0) {
+    } else if (topics.length > 0 && revealedCount === 0) {
+      // Initial load (non-streaming) — reveal all
       setRevealedCount(topics.length);
+      prevTopicCountRef.current = topics.length;
     }
-    prevTopicCountRef.current = topics.length;
   }, [topics.length, animate]);
 
-  // Build skeleton nodes for generating state
-  const skeletonNodes: SkeletonNode[] = Array.from({ length: visibleSkeletons }, (_, i) => ({
-    id: `skeleton-${i}`,
-    title: '',
-    sequenceOrder: i + 1,
-    isSkeleton: true,
-  }));
-
-  const displayNodes: (TopicSummary | SkeletonNode)[] =
-    isGenerating && topics.length === 0 ? skeletonNodes : topics;
-
-  const rows = buildSnakeRows(displayNodes, nodesPerRow);
+  const rows = buildSnakeRows(topics, nodesPerRow);
 
   // Determine the global index of each node for animation delay
   let globalIdx = 0;
@@ -179,24 +123,27 @@ export default function RoadmapCanvas({
     <div ref={containerRef} className="w-full">
       {/* Terminal header */}
       {(title || isGenerating) && (
-        <div className="flex items-center gap-2 mb-4 px-1">
+        <div className="flex items-center gap-2.5 mb-5 px-1">
           {isGenerating ? (
             <>
-              <Cpu size={14} className="text-accent-green canvas-node-glow" />
-              <span className="text-xs text-accent-green font-medium">
+              <Cpu size={17} className="text-accent-green canvas-node-glow" />
+              <span className="text-sm text-accent-green font-medium">
                 generating roadmap
               </span>
-              <span className="text-[11px] text-text-muted ml-2 canvas-dot-pulse">
+              <span className="text-[14px] text-text-muted ml-2.5 canvas-dot-pulse">
                 <span>.</span><span>.</span><span>.</span>
+              </span>
+              <span className="text-[14px] text-text-muted ml-auto">
+                {topics.length} nodes
               </span>
             </>
           ) : (
             <>
-              <Sparkles size={14} className="text-accent-cyan" />
-              <span className="text-xs text-text-secondary font-medium">
+              <Sparkles size={17} className="text-accent-cyan" />
+              <span className="text-sm text-text-secondary font-medium">
                 {title || 'roadmap topology'}
               </span>
-              <span className="text-[11px] text-text-muted ml-auto">
+              <span className="text-[14px] text-text-muted ml-auto">
                 {topics.length} nodes
               </span>
             </>
@@ -205,7 +152,7 @@ export default function RoadmapCanvas({
       )}
 
       {/* Canvas grid */}
-      <div className="relative border border-border-primary rounded-lg bg-bg-secondary/50 p-5 overflow-x-auto">
+      <div className="relative border border-border-primary rounded-lg bg-bg-secondary/50 p-6 overflow-x-auto">
         {/* Grid dot pattern background */}
         <div
           className="absolute inset-0 opacity-[0.03] pointer-events-none"
@@ -214,6 +161,21 @@ export default function RoadmapCanvas({
             backgroundSize: '20px 20px',
           }}
         />
+
+        {topics.length === 0 && isGenerating && (
+          <div className="relative z-10 flex items-center justify-center py-8">
+            <div className="flex items-center gap-2.5 text-sm text-text-muted">
+              <Cpu size={16} className="text-accent-green spinner" />
+              <span>waiting for first topic...</span>
+            </div>
+          </div>
+        )}
+
+        {topics.length === 0 && !isGenerating && (
+          <div className="relative z-10 flex items-center justify-center py-8">
+            <span className="text-sm text-text-muted">no topics yet</span>
+          </div>
+        )}
 
         <div className="relative z-10 space-y-0">
           {rows.map((row, rowIdx) => {
@@ -226,16 +188,11 @@ export default function RoadmapCanvas({
                   {row.nodes.map((node, nodeIdx) => {
                     const currentGlobalIdx = globalIdx++;
                     const isFirst = nodeIdx === 0;
-                    const isSkel = isSkeleton(node);
-                    const isRevealed = isSkel || currentGlobalIdx < revealedCount || !animate;
-                    const style = !isSkel ? STATUS_STYLES[node.status] || STATUS_STYLES.LOCKED : null;
-                    const isSelected = !isSkel && selectedTopicId === node.id;
-                    const isBeingGenerated = !isSkel && generatingTopicId === node.id;
-
-                    // True sequence number (not reversed)
-                    const seqNum = isSkel
-                      ? node.sequenceOrder
-                      : node.sequenceOrder;
+                    const isRevealed = currentGlobalIdx < revealedCount || !animate;
+                    const style = STATUS_STYLES[node.status] || STATUS_STYLES.LOCKED;
+                    const isSelected = selectedTopicId === node.id;
+                    const isBeingGenerated = generatingTopicId === node.id;
+                    const seqNum = node.sequenceOrder;
 
                     return (
                       <Fragment key={node.id}>
@@ -276,53 +233,44 @@ export default function RoadmapCanvas({
                             <div className="absolute inset-0 rounded border border-accent-blue/30 canvas-pulse-ring pointer-events-none" />
                           )}
 
-                          {isSkel ? (
-                            /* Skeleton node */
-                            <div className="canvas-skeleton rounded border border-border-primary p-3 h-[72px]">
-                              <div className="h-2 w-6 bg-bg-active rounded mb-2" />
-                              <div className="h-2 w-full bg-bg-active rounded mb-1.5" />
-                              <div className="h-2 w-2/3 bg-bg-active rounded" />
+                          {/* Real node */}
+                          <div
+                            onClick={() => onTopicClick?.(node.id, node.status)}
+                            className={`
+                              rounded border p-3.5 h-[72px] flex flex-col justify-between
+                              transition-all duration-200 group
+                              ${style.border} ${style.bg}
+                              ${node.status !== 'LOCKED' ? 'cursor-pointer hover:scale-[1.04] hover:shadow-lg hover:shadow-accent-green/5' : 'cursor-not-allowed opacity-60'}
+                              ${isSelected ? 'ring-1 ring-accent-blue shadow-lg shadow-accent-blue/10 scale-[1.04]' : ''}
+                            `}
+                          >
+                            {/* Top: number + status icon */}
+                            <div className="flex items-center justify-between">
+                              <span className={`text-[13px] font-bold ${style.text}`}>
+                                {String(seqNum).padStart(2, '0')}
+                              </span>
+                              <span className={style.text}>
+                                {style.icon}
+                              </span>
                             </div>
-                          ) : (
-                            /* Real node */
-                            <div
-                              onClick={() => onTopicClick?.(node.id, node.status)}
-                              className={`
-                                rounded border p-3 h-[72px] flex flex-col justify-between
-                                transition-all duration-200 group
-                                ${style!.border} ${style!.bg}
-                                ${node.status !== 'LOCKED' ? 'cursor-pointer hover:scale-[1.04] hover:shadow-lg hover:shadow-accent-green/5' : 'cursor-not-allowed opacity-60'}
-                                ${isSelected ? 'ring-1 ring-accent-blue shadow-lg shadow-accent-blue/10 scale-[1.04]' : ''}
-                              `}
-                            >
-                              {/* Top: number + status icon */}
-                              <div className="flex items-center justify-between">
-                                <span className={`text-[10px] font-bold ${style!.text}`}>
-                                  {String(seqNum).padStart(2, '0')}
-                                </span>
-                                <span className={style!.text}>
-                                  {style!.icon}
-                                </span>
-                              </div>
 
-                              {/* Title */}
-                              <p className="text-[11px] text-text-primary leading-tight truncate mt-1">
-                                {node.title}
-                              </p>
+                            {/* Title */}
+                            <p className="text-[14px] text-text-primary leading-tight truncate mt-1">
+                              {node.title}
+                            </p>
 
-                              {/* Bottom: time estimate */}
-                              <div className="flex items-center justify-between mt-auto">
-                                {node.estimatedMinutes > 0 && (
-                                  <span className="text-[9px] text-text-muted">
-                                    {node.estimatedMinutes}m
-                                  </span>
-                                )}
-                                <span className={`text-[9px] uppercase tracking-wider ${style!.text}`}>
-                                  {node.status.toLowerCase().replace('_', ' ')}
+                            {/* Bottom: time estimate */}
+                            <div className="flex items-center justify-between mt-auto">
+                              {node.estimatedMinutes > 0 && (
+                                <span className="text-[12px] text-text-muted">
+                                  {node.estimatedMinutes}m
                                 </span>
-                              </div>
+                              )}
+                              <span className={`text-[12px] uppercase tracking-wider ${style.text}`}>
+                                {node.status.toLowerCase().replace('_', ' ')}
+                              </span>
                             </div>
-                          )}
+                          </div>
                         </div>
                       </Fragment>
                     );
@@ -353,20 +301,15 @@ export default function RoadmapCanvas({
         </div>
       </div>
 
-      {/* Generating terminal log */}
-      {isGenerating && (
-        <div className="mt-3 px-1">
-          <div className="flex items-center gap-2 text-[11px] text-text-muted font-mono">
-            <span className="text-accent-green">$</span>
-            <span className="text-accent-green/70">{GENERATING_PHASES[phase]}</span>
-            <span className="cursor-blink text-accent-green">_</span>
-          </div>
-          <div className="flex items-center gap-3 mt-1.5 text-[10px] text-text-muted">
-            <span>model: glm5-reasoning</span>
+      {/* Footer with real model info */}
+      {isGenerating && modelName && (
+        <div className="mt-3.5 px-1">
+          <div className="flex items-center gap-3.5 text-[13px] text-text-muted">
+            <span>model: {modelName}</span>
             <span>|</span>
-            <span>max_tokens: 16384</span>
+            <span>nodes: {topics.length}</span>
             <span>|</span>
-            <span>nodes: {visibleSkeletons}/~10</span>
+            <span>stream: active</span>
           </div>
         </div>
       )}

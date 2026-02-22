@@ -28,6 +28,9 @@ public class DoubtRequest {
     @Builder.Default
     private int maxHistoryItems = 5;
     
+    /** AI model to use — null means use system default */
+    private String model;
+    
     public static DoubtRequest of(String doubt) {
         return DoubtRequest.builder()
                 .doubt(doubt)
