@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { chatApi, streamChatMessage } from '../api/chat';
 import { aiApi } from '../api/ai';
 import type { ChatSession, ChatMessage, AIModel } from '../types';
@@ -23,6 +23,7 @@ import {
   PanelLeft,
   Copy,
   Check,
+  List,
 } from 'lucide-react';
 
 // ── Helpers ──
@@ -40,6 +41,43 @@ function formatRelativeTime(dateStr: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString();
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/--+/g, '-')
+    .trim();
+}
+
+interface TocHeading {
+  level: number;
+  text: string;
+  id: string;
+}
+
+function extractHeadings(content: string, msgIndex: number): TocHeading[] {
+  const headings: TocHeading[] = [];
+  // Strip think tags and code blocks before parsing headings
+  const cleaned = stripThinkTags(content)
+    .replace(/```[\s\S]*?```/g, '') // remove fenced code blocks
+    .replace(/`[^`]+`/g, '');       // remove inline code
+  const lines = cleaned.split('\n');
+  for (const line of lines) {
+    const match = line.match(/^(#{1,3})\s+(.+)/);
+    if (match) {
+      const level = match[1].length;
+      const text = match[2].replace(/[*_`\[\]]/g, '').trim();
+      const slug = slugify(text);
+      const id = `msg-${msgIndex}-${slug}`;
+      if (text && slug) {
+        headings.push({ level, text, id });
+      }
+    }
+  }
+  return headings;
 }
 
 // ── Code Block with copy button ──
@@ -75,6 +113,11 @@ function CodeBlock({ language, children }: { language: string; children: string 
           background: '#0d1117',
           fontSize: '14px',
           lineHeight: '1.5',
+        }}
+        codeTagProps={{
+          style: {
+            background: 'transparent',
+          },
         }}
       >
         {children}
@@ -173,7 +216,7 @@ function preprocessTreeBlocks(text: string): string {
   return result.join('\n');
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownContent({ content, msgIndex = 0 }: { content: string; msgIndex?: number }) {
   // Pre-process: strip <think> tags, wrap tree/ASCII art in code blocks
   const processed = preprocessTreeBlocks(stripThinkTags(content));
 
@@ -193,6 +236,18 @@ function MarkdownContent({ content }: { content: string }) {
             }
             return <code className={className}>{children}</code>;
           },
+          h1({ children }) {
+            const text = typeof children === 'string' ? children : String(children);
+            return <h1 id={`msg-${msgIndex}-${slugify(text)}`}>{children}</h1>;
+          },
+          h2({ children }) {
+            const text = typeof children === 'string' ? children : String(children);
+            return <h2 id={`msg-${msgIndex}-${slugify(text)}`}>{children}</h2>;
+          },
+          h3({ children }) {
+            const text = typeof children === 'string' ? children : String(children);
+            return <h3 id={`msg-${msgIndex}-${slugify(text)}`}>{children}</h3>;
+          },
           pre({ children }) {
             // prevent double-wrapping with SyntaxHighlighter
             return <>{children}</>;
@@ -207,7 +262,7 @@ function MarkdownContent({ content }: { content: string }) {
 
 // ── Message Bubble ──
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, msgIndex }: { message: ChatMessage; msgIndex: number }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end fade-in">
@@ -242,7 +297,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {message.thinking && (
           <ThinkingBlock content={message.thinking} />
         )}
-        <MarkdownContent content={message.content} />
+        <MarkdownContent content={message.content} msgIndex={msgIndex} />
       </div>
     </div>
   );
@@ -255,11 +310,13 @@ function StreamingMessage({
   thinking,
   modelName,
   isThinking,
+  msgIndex,
 }: {
   content: string;
   thinking: string;
   modelName?: string;
   isThinking: boolean;
+  msgIndex: number;
 }) {
   return (
     <div className="flex justify-start fade-in">
@@ -277,7 +334,7 @@ function StreamingMessage({
         )}
         {content ? (
           <div>
-            <MarkdownContent content={content} />
+            <MarkdownContent content={content} msgIndex={msgIndex} />
             <span className="nexus-stream-cursor" />
           </div>
         ) : (
@@ -338,6 +395,85 @@ function EmptyState({
   );
 }
 
+// ── On This Page (TOC sidebar) ──
+
+function OnThisPage({
+  headings,
+  scrollRef,
+}: {
+  headings: TocHeading[];
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [activeId, setActiveId] = useState<string>('');
+
+  // Track which heading is in view via IntersectionObserver
+  useEffect(() => {
+    if (!scrollRef.current || headings.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Find the first entry that is intersecting
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveId(entry.target.id);
+            break;
+          }
+        }
+      },
+      {
+        root: scrollRef.current,
+        rootMargin: '-5% 0px -75% 0px',
+        threshold: 0,
+      }
+    );
+
+    // Observe all heading elements that match our current headings
+    const ids = new Set(headings.map((h) => h.id));
+    const headingEls = scrollRef.current.querySelectorAll('h1[id], h2[id], h3[id]');
+    headingEls.forEach((el) => {
+      if (ids.has(el.id)) {
+        observer.observe(el);
+      }
+    });
+
+    return () => observer.disconnect();
+  }, [headings, scrollRef]);
+
+  const handleClick = (id: string) => {
+    const el = scrollRef.current?.querySelector(`#${CSS.escape(id)}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActiveId(id);
+    }
+  };
+
+  if (headings.length === 0) return null;
+
+  return (
+    <div className="nexus-toc-sidebar w-56 shrink-0 border-l border-border-primary overflow-y-auto hidden xl:block">
+      <div className="sticky top-0 px-4 py-5">
+        <div className="flex items-center gap-2 text-sm text-text-secondary mb-4">
+          <List size={15} />
+          <span>on this page</span>
+        </div>
+        <nav className="nexus-toc-nav space-y-0.5">
+          {headings.map((h, i) => (
+            <button
+              key={`${h.id}-${i}`}
+              onClick={() => handleClick(h.id)}
+              className={`nexus-toc-item ${activeId === h.id ? 'active' : ''} ${
+                h.level === 1 ? 'toc-h1' : h.level === 2 ? 'toc-h2' : 'toc-h3'
+              }`}
+            >
+              {h.text}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════
 // ── Main NexusChat Component ──
 // ══════════════════════════════════════
@@ -364,6 +500,7 @@ export default function NexusChat() {
 
   // UI
   const [showSidebar, setShowSidebar] = useState(true);
+  const [visibleMsgIndex, setVisibleMsgIndex] = useState<number>(-1);
 
   // Refs
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -375,6 +512,68 @@ export default function NexusChat() {
   // ── Derived ──
   const selectedModelObj = models.find((m) => m.id === selectedModel);
   const showThinkingToggle = selectedModelObj?.supportsThinking ?? false;
+
+  // Compute headings for all assistant messages
+  const messageHeadingsMap = useMemo(() => {
+    const map = new Map<number, TocHeading[]>();
+    messages.forEach((msg, i) => {
+      if (msg.role === 'assistant' && msg.content) {
+        const headings = extractHeadings(msg.content, i);
+        if (headings.length > 0) {
+          map.set(i, headings);
+        }
+      }
+    });
+    return map;
+  }, [messages]);
+
+  // Get the headings for the currently visible assistant message
+  const currentTocHeadings = useMemo(() => {
+    // If streaming, show headings from the streaming content
+    if (isStreaming && streamContent) {
+      const streamIdx = messages.length; // streaming message is "after" existing messages
+      return extractHeadings(streamContent, streamIdx);
+    }
+    // Otherwise show headings from the visible assistant message
+    if (visibleMsgIndex >= 0 && messageHeadingsMap.has(visibleMsgIndex)) {
+      return messageHeadingsMap.get(visibleMsgIndex) || [];
+    }
+    // Fallback: show headings from the last assistant message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messageHeadingsMap.has(i)) {
+        return messageHeadingsMap.get(i) || [];
+      }
+    }
+    return [];
+  }, [visibleMsgIndex, messageHeadingsMap, isStreaming, streamContent, messages.length]);
+
+  // Track which assistant message is currently in view
+  useEffect(() => {
+    if (!scrollRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const idx = Number(entry.target.getAttribute('data-msg-index'));
+            if (!isNaN(idx)) {
+              setVisibleMsgIndex(idx);
+            }
+          }
+        }
+      },
+      {
+        root: scrollRef.current,
+        rootMargin: '-10% 0px -60% 0px',
+        threshold: 0,
+      }
+    );
+
+    const msgBlocks = scrollRef.current.querySelectorAll('[data-msg-index]');
+    msgBlocks.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, [messages]);
 
   // ── Effects ──
 
@@ -665,11 +864,10 @@ export default function NexusChat() {
                 <div
                   key={session.id}
                   onClick={() => handleSelectSession(session.id)}
-                  className={`group flex items-center gap-2.5 px-3.5 py-3 cursor-pointer border-l-2 transition-colors ${
-                    activeSessionId === session.id
-                      ? 'bg-bg-active border-accent-cyan text-text-primary'
-                      : 'border-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-                  }`}
+                  className={`group flex items-center gap-2.5 px-3.5 py-3 cursor-pointer border-l-2 transition-colors ${activeSessionId === session.id
+                    ? 'bg-bg-active border-accent-cyan text-text-primary'
+                    : 'border-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                    }`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm truncate">{session.title}</div>
@@ -733,45 +931,61 @@ export default function NexusChat() {
           </div>
         </div>
 
-        {/* Messages area */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          {messagesLoading ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="flex items-center gap-2.5 text-text-secondary text-base">
-                <Loader2 size={17} className="spinner" />
-                loading messages...
+        {/* Messages area + TOC sidebar */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Scrollable messages */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto min-w-0">
+            {messagesLoading ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="flex items-center gap-2.5 text-text-secondary text-base">
+                  <Loader2 size={17} className="spinner" />
+                  loading messages...
+                </div>
               </div>
-            </div>
-          ) : messages.length === 0 && !isStreaming ? (
-            <EmptyState
-              modelName={selectedModelObj?.name}
-              onSuggestion={(text) => {
-                setInput(text);
-                inputRef.current?.focus();
-              }}
-            />
-          ) : (
-            <div className="max-w-3xl mx-auto p-7 space-y-7">
-              {messages.map((msg, i) => (
-                <MessageBubble key={msg.id || i} message={msg} />
-              ))}
+            ) : messages.length === 0 && !isStreaming ? (
+              <EmptyState
+                modelName={selectedModelObj?.name}
+                onSuggestion={(text) => {
+                  setInput(text);
+                  inputRef.current?.focus();
+                }}
+              />
+            ) : (
+              <div className="p-7 space-y-7">
+                {messages.map((msg, i) => (
+                  <div
+                    key={msg.id || i}
+                    data-msg-index={msg.role === 'assistant' ? i : undefined}
+                  >
+                    <MessageBubble message={msg} msgIndex={i} />
+                  </div>
+                ))}
 
-              {/* Streaming message */}
-              {isStreaming && (
-                <StreamingMessage
-                  content={streamContent}
-                  thinking={streamThinking}
-                  modelName={selectedModelObj?.name}
-                  isThinking={isThinkingPhase}
-                />
-              )}
-            </div>
+                {/* Streaming message */}
+                {isStreaming && (
+                  <div data-msg-index={messages.length}>
+                    <StreamingMessage
+                      content={streamContent}
+                      thinking={streamThinking}
+                      modelName={selectedModelObj?.name}
+                      isThinking={isThinkingPhase}
+                      msgIndex={messages.length}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* On This Page sidebar */}
+          {(messages.length > 0 || isStreaming) && (
+            <OnThisPage headings={currentTocHeadings} scrollRef={scrollRef} />
           )}
         </div>
 
         {/* ── Input Bar ── */}
         <div className="border-t border-border-primary bg-bg-secondary p-5 shrink-0">
-          <div className="max-w-3xl mx-auto">
+          <div>
             <div className="flex items-end gap-2.5 border border-border-primary rounded-lg bg-bg-primary focus-within:border-accent-cyan/50 transition-colors">
               <textarea
                 ref={inputRef}
@@ -786,11 +1000,10 @@ export default function NexusChat() {
               <button
                 onClick={isStreaming ? handleStop : handleSend}
                 disabled={!isStreaming && !input.trim()}
-                className={`px-3.5 py-3.5 transition-colors cursor-pointer ${
-                  isStreaming
-                    ? 'text-accent-red hover:text-accent-red/80'
-                    : 'text-text-muted hover:text-accent-cyan disabled:opacity-30 disabled:cursor-not-allowed'
-                }`}
+                className={`px-3.5 py-3.5 transition-colors cursor-pointer ${isStreaming
+                  ? 'text-accent-red hover:text-accent-red/80'
+                  : 'text-text-muted hover:text-accent-cyan disabled:opacity-30 disabled:cursor-not-allowed'
+                  }`}
                 title={isStreaming ? 'Stop generation' : 'Send message'}
               >
                 {isStreaming ? <Square size={18} /> : <Send size={18} />}
@@ -838,9 +1051,8 @@ export default function NexusChat() {
                                 setShowModelPicker(false);
                                 if (!m.supportsThinking) setEnableThinking(false);
                               }}
-                              className={`w-full text-left px-3.5 py-2.5 hover:bg-bg-hover transition-colors cursor-pointer ${
-                                selectedModel === m.id ? 'bg-bg-active' : ''
-                              }`}
+                              className={`w-full text-left px-3.5 py-2.5 hover:bg-bg-hover transition-colors cursor-pointer ${selectedModel === m.id ? 'bg-bg-active' : ''
+                                }`}
                             >
                               <div className="flex items-center justify-between">
                                 <span className="text-sm text-text-primary">{m.name}</span>
@@ -872,9 +1084,8 @@ export default function NexusChat() {
                                 setShowModelPicker(false);
                                 setEnableThinking(false);
                               }}
-                              className={`w-full text-left px-3.5 py-2.5 hover:bg-bg-hover transition-colors cursor-pointer ${
-                                selectedModel === m.id ? 'bg-bg-active' : ''
-                              }`}
+                              className={`w-full text-left px-3.5 py-2.5 hover:bg-bg-hover transition-colors cursor-pointer ${selectedModel === m.id ? 'bg-bg-active' : ''
+                                }`}
                             >
                               <div className="flex items-center justify-between">
                                 <span className="text-sm text-text-primary">{m.name}</span>
@@ -897,11 +1108,10 @@ export default function NexusChat() {
                 {showThinkingToggle && (
                   <button
                     onClick={() => setEnableThinking(!enableThinking)}
-                    className={`flex items-center gap-2 px-2.5 py-1 border rounded transition-colors cursor-pointer ${
-                      enableThinking
-                        ? 'text-accent-purple border-accent-purple/40 bg-accent-purple/5'
-                        : 'text-text-muted border-border-primary hover:text-accent-purple hover:border-accent-purple/30'
-                    }`}
+                    className={`flex items-center gap-2 px-2.5 py-1 border rounded transition-colors cursor-pointer ${enableThinking
+                      ? 'text-accent-purple border-accent-purple/40 bg-accent-purple/5'
+                      : 'text-text-muted border-border-primary hover:text-accent-purple hover:border-accent-purple/30'
+                      }`}
                     title="Toggle thinking/reasoning"
                   >
                     <Brain size={13} />
