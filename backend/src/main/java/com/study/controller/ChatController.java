@@ -29,6 +29,13 @@ public class ChatController {
     /**
      * Send a message and stream the AI response via SSE.
      * Creates a new session if sessionId is null in the request body.
+     *
+     * The returned Flux has a final onErrorResume safety net at the controller level.
+     * This is a defence-in-depth measure: even if ChatService's own error handling
+     * misses an edge case, the error is converted into an SSE "error" event instead
+     * of propagating to Spring MVC's async error handler (which would try — and fail —
+     * to render an error page on an already-committed response, leaking the Tomcat
+     * thread and eventually making the whole backend unresponsive).
      */
     @PostMapping(value = "/send", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> sendMessage(
@@ -40,7 +47,17 @@ public class ChatController {
                 request.getSessionId() != null ? request.getSessionId() : "NEW",
                 request.getModel());
 
-        return chatService.sendMessageStream(userPrincipal.getId(), request);
+        return chatService.sendMessageStream(userPrincipal.getId(), request)
+                .onErrorResume(e -> {
+                    log.error("Controller-level SSE error for user {}: {}",
+                            userPrincipal.getId(), e.getMessage(), e);
+                    return Flux.just(
+                            ServerSentEvent.<String>builder()
+                                    .event("error")
+                                    .data("{\"message\":\"An unexpected error occurred\"}")
+                                    .build()
+                    );
+                });
     }
 
     /**

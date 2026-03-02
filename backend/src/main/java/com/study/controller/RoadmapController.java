@@ -32,7 +32,17 @@ public class RoadmapController {
         log.info("POST /roadmaps/stream - User: {}, Title: '{}', AI: {}", 
                 userPrincipal.getId(), request.getTitle(), request.isGenerateWithAI());
         
-        return roadmapService.createRoadmapStreaming(userPrincipal.getId(), request);
+        return roadmapService.createRoadmapStreaming(userPrincipal.getId(), request)
+                .onErrorResume(e -> {
+                    log.error("Roadmap SSE stream error for user {}: {}",
+                            userPrincipal.getId(), e.getMessage(), e);
+                    return Flux.just(
+                            ServerSentEvent.<String>builder()
+                                    .event("error")
+                                    .data("{\"message\":\"An unexpected error occurred\"}")
+                                    .build()
+                    );
+                });
     }
 
     @PostMapping

@@ -14,6 +14,13 @@ server:
   port: ${SERVER_PORT:8080}
   servlet:
     context-path: /api
+  # Tomcat thread pool tuning: keep enough threads so a few stuck SSE
+  # connections cannot exhaust the pool and make the whole backend unresponsive.
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+    connection-timeout: 30000
 
 # JWT Configuration
 jwt:
@@ -25,11 +32,18 @@ jwt:
 logging:
   level:
     com.study: DEBUG
-    org.springframework.security: DEBUG
+    # Reduce security logging to WARN — DEBUG logs every request twice
+    # ("Securing...", "Secured...") and floods the console, obscuring real errors.
+    org.springframework.security: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 
-# Async request timeout for SSE streaming (5 minutes)
+# Async request timeout for SSE streaming (5 minutes).
+# This is a hard upper bound: if the Flux hasn't completed by then, Spring
+# MVC will abort the async context. The ChatService also has its own
+# internal stream timeout (STREAM_TIMEOUT_SECONDS = 240s) which fires
+# BEFORE this one and converts the timeout into a clean SSE error event,
+# so under normal conditions this outer timeout is never reached.
 spring.mvc.async.request-timeout: 300000
 
 # CORS is configured in SecurityConfig.java

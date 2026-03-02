@@ -13,10 +13,12 @@ import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Service
@@ -72,6 +74,9 @@ public class ChatService {
 
     // ── Chat Streaming ──
 
+    /** Maximum number of history messages to include in AI context to prevent context overflow */
+    private static final int MAX_HISTORY_MESSAGES = 20;
+
     /**
      * Send a message and stream the AI response via SSE.
      * Creates a new session if sessionId is null.
@@ -114,9 +119,14 @@ public class ChatService {
                     .build();
             messageRepository.save(userMessage);
 
-            // Build conversation history for context
+            // Build conversation history for context (limited to prevent context overflow)
             List<ChatMessage> history = messageRepository
                     .findBySessionIdOrderByCreatedAtAsc(finalSession.getId());
+            if (history.size() > MAX_HISTORY_MESSAGES) {
+                log.info("Trimming conversation history from {} to {} messages for session {}",
+                        history.size(), MAX_HISTORY_MESSAGES, finalSession.getId());
+                history = history.subList(history.size() - MAX_HISTORY_MESSAGES, history.size());
+            }
 
             // Resolve model
             String resolvedModel = modelConfig.resolveModelId(
@@ -149,14 +159,29 @@ public class ChatService {
                     aiRequest, sessionId, userId, resolvedModel, thinkingEnabled
             );
 
-            return sessionEvent.concatWith(contentStream);
+            // Top-level safety net: catch ANY error that escapes inner handlers.
+            // This is critical because once the first SSE event is written, the HTTP
+            // response is committed; any unhandled error would propagate to Spring MVC's
+            // async error handler which cannot render an error page on a committed response,
+            // leading to "Cannot render error page for request [null]" and thread leaks.
+            return sessionEvent.concatWith(contentStream)
+                    .onErrorResume(e -> {
+                        log.error("Unhandled error in SSE pipeline for session {}: {}",
+                                sessionId, e.getMessage(), e);
+                        return Flux.just(
+                                ServerSentEvent.<String>builder()
+                                        .event("error")
+                                        .data("{\"message\":\"" + escapeJson(e.getMessage()) + "\"}")
+                                        .build()
+                        );
+                    });
 
         } catch (Exception e) {
             log.error("Error sending chat message", e);
             return Flux.just(
                     ServerSentEvent.<String>builder()
                             .event("error")
-                            .data("{\"message\":\"" + e.getMessage().replace("\"", "'") + "\"}")
+                            .data("{\"message\":\"" + escapeJson(e.getMessage()) + "\"}")
                             .build()
             );
         }
@@ -201,12 +226,19 @@ public class ChatService {
         return request;
     }
 
+    /** Maximum time (seconds) the entire AI stream can run before we force-close it */
+    private static final long STREAM_TIMEOUT_SECONDS = 240;
+
     /**
      * Stream AI response, parsing thinking content for thinking-enabled models.
      * Handles two thinking formats:
      * 1. REASONING_MARKER prefix from NvidiaAIService (delta.reasoning_content field)
      * 2. Inline <think>...</think> tags in content stream (DeepSeek R1 style)
      * Saves the assistant message when the stream completes.
+     *
+     * The method applies a hard timeout so a stalled stream can never hold a
+     * Tomcat thread indefinitely (the main cause of the whole backend becoming
+     * unresponsive after a few problematic chat turns).
      */
     private Flux<ServerSentEvent<String>> streamAIResponse(AIRequest aiRequest,
                                                             String sessionId,
@@ -220,44 +252,70 @@ public class ChatService {
 
         return aiService.generateStream(aiRequest)
                 .map(chunk -> {
-                    if (chunk.startsWith("[ERROR]")) {
-                        return ServerSentEvent.<String>builder()
-                                .event("error")
-                                .data("{\"message\":\"" + chunk.replace("\"", "'") + "\"}")
-                                .build();
-                    }
-
-                    if (thinkingEnabled) {
-                        // Check for REASONING_MARKER (from delta.reasoning_content)
-                        if (chunk.startsWith(NvidiaAIService.REASONING_MARKER)) {
-                            String reasoning = chunk.substring(NvidiaAIService.REASONING_MARKER.length());
-                            thinkingContent.append(reasoning);
-                            String escaped = escapeJson(reasoning);
+                    try {
+                        if (chunk.startsWith("[ERROR]")) {
                             return ServerSentEvent.<String>builder()
-                                    .event("thinking")
+                                    .event("error")
+                                    .data("{\"message\":\"" + escapeJson(chunk) + "\"}")
+                                    .build();
+                        }
+
+                        if (thinkingEnabled) {
+                            // Check for REASONING_MARKER (from delta.reasoning_content)
+                            if (chunk.startsWith(NvidiaAIService.REASONING_MARKER)) {
+                                String reasoning = chunk.substring(NvidiaAIService.REASONING_MARKER.length());
+                                thinkingContent.append(reasoning);
+                                String escaped = escapeJson(reasoning);
+                                return ServerSentEvent.<String>builder()
+                                        .event("thinking")
+                                        .data("{\"content\":\"" + escaped + "\"}")
+                                        .build();
+                            }
+                            // Otherwise parse inline <think> tags (DeepSeek R1 style)
+                            return processChunkWithThinking(chunk, fullContent, thinkingContent, state);
+                        } else {
+                            // Non-thinking mode: skip reasoning markers, send only content
+                            if (chunk.startsWith(NvidiaAIService.REASONING_MARKER)) {
+                                return ServerSentEvent.<String>builder()
+                                        .event("content")
+                                        .data("{\"content\":\"\"}")
+                                        .build();
+                            }
+                            fullContent.append(chunk);
+                            String escaped = escapeJson(chunk);
+                            return ServerSentEvent.<String>builder()
+                                    .event("content")
                                     .data("{\"content\":\"" + escaped + "\"}")
                                     .build();
                         }
-                        // Otherwise parse inline <think> tags (DeepSeek R1 style)
-                        return processChunkWithThinking(chunk, fullContent, thinkingContent, state);
-                    } else {
-                        // Non-thinking mode: strip any accidental <think> tags and
-                        // reasoning markers, send only content
-                        String cleanChunk = chunk;
-                        if (cleanChunk.startsWith(NvidiaAIService.REASONING_MARKER)) {
-                            // Skip reasoning chunks when thinking is disabled
-                            return ServerSentEvent.<String>builder()
-                                    .event("content")
-                                    .data("{\"content\":\"\"}")
-                                    .build();
-                        }
-                        fullContent.append(cleanChunk);
-                        String escaped = escapeJson(cleanChunk);
+                    } catch (Exception e) {
+                        // Guard: any unexpected exception inside the mapper must NOT
+                        // escape as an unhandled Flux error — that would kill the stream
+                        // and eventually the Tomcat thread holding this async context.
+                        log.error("Error processing SSE chunk for session {}: {}", sessionId, e.getMessage());
                         return ServerSentEvent.<String>builder()
                                 .event("content")
-                                .data("{\"content\":\"" + escaped + "\"}")
+                                .data("{\"content\":\"\"}")
                                 .build();
                     }
+                })
+                // Hard timeout: if the stream stalls (no chunks for STREAM_TIMEOUT_SECONDS),
+                // force-complete it so the Tomcat thread is released.
+                .timeout(Duration.ofSeconds(STREAM_TIMEOUT_SECONDS))
+                .onErrorResume(TimeoutException.class, e -> {
+                    log.warn("AI stream timed out after {}s for session {}", STREAM_TIMEOUT_SECONDS, sessionId);
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("error")
+                            .data("{\"message\":\"AI response timed out. Please try again.\"}")
+                            .build());
+                })
+                .onErrorResume(e -> {
+                    log.error("Unexpected error in AI content stream for session {}: {}",
+                            sessionId, e.getMessage(), e);
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("error")
+                            .data("{\"message\":\"" + escapeJson(e.getMessage()) + "\"}")
+                            .build());
                 })
                 .concatWith(Flux.defer(() -> {
                     // Stream complete — save assistant message
@@ -271,7 +329,6 @@ public class ChatService {
                                     ? content.split("</think>", 2)[1].stripLeading() : content;
                             String beforeThink = content.split("<think>", 2).length > 1
                                     ? content.split("<think>", 2)[0] : "";
-                            // Extract any thinking from content
                             if (thinking.isEmpty() && content.contains("<think>") && content.contains("</think>")) {
                                 thinking = content.substring(
                                         content.indexOf("<think>") + 7,
@@ -281,39 +338,44 @@ public class ChatService {
                             content = (beforeThink + afterThink).strip();
                         }
 
-                        ChatMessage assistantMessage = ChatMessage.builder()
-                                .sessionId(sessionId)
-                                .userId(userId)
-                                .role("assistant")
-                                .content(content)
-                                .thinking(thinking.isEmpty() ? null : thinking)
-                                .model(model)
-                                .createdAt(LocalDateTime.now())
-                                .build();
-                        messageRepository.save(assistantMessage);
+                        if (!content.isEmpty()) {
+                            ChatMessage assistantMessage = ChatMessage.builder()
+                                    .sessionId(sessionId)
+                                    .userId(userId)
+                                    .role("assistant")
+                                    .content(content)
+                                    .thinking(thinking.isEmpty() ? null : thinking)
+                                    .model(model)
+                                    .createdAt(LocalDateTime.now())
+                                    .build();
+                            messageRepository.save(assistantMessage);
 
-                        // Update session
-                        sessionRepository.findById(sessionId).ifPresent(session -> {
-                            session.setMessageCount((int) messageRepository.countBySessionId(sessionId));
-                            session.setUpdatedAt(LocalDateTime.now());
-                            sessionRepository.save(session);
-                        });
+                            // Update session
+                            sessionRepository.findById(sessionId).ifPresent(session -> {
+                                session.setMessageCount((int) messageRepository.countBySessionId(sessionId));
+                                session.setUpdatedAt(LocalDateTime.now());
+                                sessionRepository.save(session);
+                            });
 
-                        log.info("Chat stream completed for session {}: content={}chars, thinking={}chars",
-                                sessionId, content.length(), thinking.length());
+                            log.info("Chat stream completed for session {}: content={}chars, thinking={}chars",
+                                    sessionId, content.length(), thinking.length());
+                        } else {
+                            log.warn("Chat stream completed with empty content for session {}", sessionId);
+                        }
 
                         return Flux.just(ServerSentEvent.<String>builder()
                                 .event("done")
                                 .data("{\"sessionId\":\"" + sessionId + "\",\"model\":\"" + model + "\"}")
                                 .build());
                     } catch (Exception e) {
-                        log.error("Error saving assistant message", e);
+                        log.error("Error saving assistant message for session {}", sessionId, e);
                         return Flux.just(ServerSentEvent.<String>builder()
                                 .event("error")
                                 .data("{\"message\":\"Failed to save response\"}")
                                 .build());
                     }
-                }));
+                }))
+                .doOnCancel(() -> log.info("SSE stream cancelled by client for session {}", sessionId));
     }
 
     /**
